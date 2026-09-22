@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyBooker - Flight Booking</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                900: '#1e3a8a',
+              },
+            },
+          },
+        },
+      };
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/react-router-dom@6/dist/umd/react-router-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+    <style>
+      body {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-gray-900">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+      const { useState, useEffect, useContext, createContext } = React;
+      const { BrowserRouter, Routes, Route, Link, Navigate, useNavigate, useParams, useSearchParams, useLocation } = ReactRouterDOM;
+
+      // ============================================================
+      // API CLIENT
+      // ============================================================
+      const api = axios.create({ baseURL: '/api' });
+      api.interceptors.request.use((config) => {
+        const token = localStorage.getItem('token');
+        if (token) config.headers.Authorization = `Bearer ${token}`;
+        return config;
+      });
+      api.interceptors.response.use(
+        (res) => res,
+        (err) => {
+          if (err.response?.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
+          return Promise.reject(err);
+        }
+      );
+
+      // ============================================================
+      // TOAST (simple)
+      // ============================================================
+      const ToastCtx = createContext({ push: () => {} });
+      function ToastProvider({ children }) {
+        const [toasts, setToasts] = useState([]);
+        const push = (msg, type = 'info') => {
+          const id = Date.now() + Math.random();
+          setToasts((t) => [...t, { id, msg, type }]);
+          setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
+        };
+        return (
+          <ToastCtx.Provider value={{ push }}>
+            {children}
+            <div className="fixed top-4 right-4 z-50 space-y-2">
+              {toasts.map((t) => (
+                <div
+                  key={t.id}
+                  className={`px-4 py-3 rounded-lg shadow-lg text-white text-sm ${
+                    t.type === 'error' ? 'bg-red-500' : t.type === 'success' ? 'bg-green-600' : 'bg-gray-800'
+                  }`}
+                >
+                  {t.msg}
+                </div>
+              ))}
+            </div>
+          </ToastCtx.Provider>
+        );
+      }
+      const useToast = () => useContext(ToastCtx);
+
+      // ============================================================
+      // AUTH CONTEXT
+      // ============================================================
+      const AuthCtx = createContext(null);
+      function AuthProvider({ children }) {
+        const [user, setUser] = useState(() => {
+          const stored = localStorage.getItem('user');
+          return stored ? JSON.parse(stored) : null;
+        });
+        const login = async (email, password) => {
+          const { data } = await api.post('/auth/login', { email, password });
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          setUser(data.user);
+          return data.user;
+        };
+        const register = async (payload) => {
+          const { data } = await api.post('/auth/register', payload);
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          setUser(data.user);
+          return data.user;
+        };
+        const logout = () => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setUser(null);
+        };
+        return (
+          <AuthCtx.Provider value={{ user, login, register, logout }}>
+            {children}
+          </AuthCtx.Provider>
+        );
+      }
+      const useAuth = () => useContext(AuthCtx);
+
+      // ============================================================
+      // NAVBAR
+      // ============================================================
+      function Navbar() {
+        const { user, logout } = useAuth();
+        const toast = useToast();
+        const navigate = useNavigate();
+        const handleLogout = () => {
+          logout();
+          toast.push('Logged out', 'success');
+          navigate('/');
+        };
+        return (
+          <nav className="bg-white border-b shadow-sm sticky top-0 z-40">
+            <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+              <Link to="/" className="flex items-center gap-2 text-xl font-bold text-primary-700">
+                ✈️ SkyBooker
+              </Link>
+              <div className="flex items-center gap-4 text-sm">
+                <Link to="/flights" className="text-gray-700 hover:text-primary-600">Search</Link>
+                {user ? (
+                  <>
+                    <Link to="/bookings" className="text-gray-700 hover:text-primary-600">My Bookings</Link>
+                    <span className="text-gray-500">Hi, {user.name}</span>
+                    <button onClick={handleLogout} className="bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded-lg">
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/login" className="text-gray-700 hover:text-primary-600">Login</Link>
+                    <Link to="/register" className="bg-primary-600 hover:bg-primary-700 text-white px-3 py-1.5 rounded-lg">
+                      Sign Up
+                    </Link>
+                  </>
+                )}
+              </div>
+            </div>
+          </nav>
+        );
+      }
+
+      // ============================================================
+      // PROTECTED ROUTE
+      // ============================================================
+      function ProtectedRoute({ children }) {
+        const { user } = useAuth();
+        const location = useLocation();
+        if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+        return children;
+      }
+
+      // ============================================================
+      // SEARCH FORM
+      // ============================================================
+      function SearchForm({ initialValues = {} }) {
+        const navigate = useNavigate();
+        const [form, setForm] = useState({
+          origin: initialValues.origin || '',
+          destination: initialValues.destination || '',
+          departureDate: initialValues.departureDate || '',
+          passengers: initialValues.passengers || 1,
+          class: initialValues.class || 'economy',
+        });
+        const update = (k, v) => setForm({ ...form, [k]: v });
+        const submit = (e) => {
+          e.preventDefault();
+          const params = new URLSearchParams(form).toString();
+          navigate(`/flights?${params}`);
+        };
+        return (
+          <form onSubmit={submit} className="bg-white rounded-xl shadow-sm border p-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">From</label>
+              <input required placeholder="JFK" maxLength={3} value={form.origin}
+                onChange={(e) => update('origin', e.target.value.toUpperCase())}
+                className="w-full px-3 py-2 border rounded-lg uppercase focus:ring-2 focus:ring-primary-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">To</label>
+              <input required placeholder="LAX" maxLength={3} value={form.destination}
+                onChange={(e) => update('destination', e.target.value.toUpperCase())}
+                className="w-full px-3 py-2 border rounded-lg uppercase focus:ring-2 focus:ring-primary-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Date</label>
+              <input required type="date" value={form.departureDate}
+                min
